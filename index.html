@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
+    <title>벽돌 게임 (기사 출동!)</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #333;
+            overflow: hidden; 
+        }
+        #gameBox {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-image: url('./background.png');
+            background-size: cover;
+            background-position: center;
+        }
+        canvas {
+            border: 4px solid white;
+            background-color: black; 
+            max-width: 95vw;
+            max-height: 95vh;
+            border-radius: 4px;
+        }
+        
+        .btn {
+            padding: 15px 40px;
+            background-color: white;
+            color: #111;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            border-radius: 8px;
+            font-family: 'DotGothic16', sans-serif;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .btn:hover {
+            background-color: #eee;
+            transform: translateY(-2px);
+        }
+
+        #initScreen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 40px;
+            width: 100%;
+        }
+
+        #titleImg {
+            width: 70%;
+            max-width: 800px; 
+            object-fit: contain;
+        }
+
+        #startBtns {
+            display: flex;
+            gap: 20px;
+        }
+
+        #resultBtns {
+            position: absolute;
+            top: 75%; 
+            left: 50%;
+            transform: translateX(-50%);
+            display: none; 
+            gap: 20px;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameBox">
+        <canvas width="880" height="770"></canvas>
+        
+        <div id="initScreen">
+            <img src="./title.png" id="titleImg" alt="GAME TITLE">
+            <div id="startBtns">
+                <button class="btn" onclick="selectStage(0)">STAGE 1</button>
+                <button class="btn" onclick="selectStage(1)">STAGE 2</button>
+                <button class="btn" onclick="selectStage(2)">FINAL</button>
+            </div>
+        </div>
+        
+        <div id="resultBtns">
+            <button id="levelSelectBtn" class="btn">단계 선택</button>
+            <button id="restartBtn" class="btn">다시 시작</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.querySelector("canvas");
+        const ctx = canvas.getContext("2d");
+        
+        const initScreen = document.getElementById("initScreen");
+        const resultBtns = document.getElementById("resultBtns");
+        const levelSelectBtn = document.getElementById("levelSelectBtn");
+        const restartBtn = document.getElementById("restartBtn");
+
+        const ballImg = new Image();
+        ballImg.src = './ball.png'; // 31x33 사이즈 기사
+        
+        const bladeImg = new Image();
+        bladeImg.src = './blade.png'; 
+        
+        const clearImg = new Image();
+        clearImg.src = './clear.png'; 
+    
+        // 스테이지 밸런스 및 사이즈 수정 (STAGE 1 가로 4개로 대폭 완화)
+        const LEVELS = [
+            { w: 880, h: 770, c: 4, r: 4, sx: 12, sy: -6, title: "STAGE 1" },
+            { w: 1500, h: 720, c: 8, r: 9, sx: 14, sy: -7, title: "STAGE 2" },
+            { w: 1850, h: 880, c: 14, r: 10, sx: 17, sy: -8.5, title: "FINAL STAGE" } 
+        ];
+        
+        let currentLevelIdx = 0; 
+        
+        let currentW = 880;
+        let currentH = 770;
+        let targetW = 880;
+        let targetH = 770;
+
+        // 히트박스 & 사이즈 세팅
+        let ballR = 15.5; // 지름 31에 맞춘 히트박스 반지름
+        let ballX = canvas.width / 2;
+        let ballY = canvas.height - 80;
+        let ballSpeedX, ballSpeedY;
+
+        let barW = 164; 
+        let barH = 20;
+        let barX = canvas.width / 2 - barW / 2;
+        let barY = canvas.height - 60; 
+
+        let bricks = [];
+        let bricksW = 100;
+        let bricksH = 30;
+        let bricksGap = 15;
+        let remainingBricks = 0; 
+
+        let gameState = 'INIT'; 
+        let countdownNum = 3;
+        let clearAlpha = 0; 
+        let rainbowHue = 0; 
+        let flashState = true; 
+
+        function setupBoardForLevel(levelData) {
+            ballSpeedX = levelData.sx;
+            ballSpeedY = levelData.sy; 
+            
+            barX = canvas.width / 2 - barW / 2;
+            barY = canvas.height - 60;
+            
+            ballX = canvas.width / 2;
+            ballY = canvas.height - 100;
+            
+            clearAlpha = 0;
+            bricks = [];
+            remainingBricks = 0;
+
+            let cols = levelData.c;
+            let rows = levelData.r;
+            let startX = (canvas.width - (cols * bricksW + (cols - 1) * bricksGap)) / 2;
+
+            for(let row = 0; row < rows ; row++){
+                for(let col = 0; col < cols; col++){
+                    
+                    let isShow = true;
+
+                    if (currentLevelIdx === 2) {
+                        if (col >= 5 && col <= 8 && row >= 3 && row <= 6) {
+                            isShow = false;
+                        }
+                    }
+
+                    if (isShow) {
+                        bricks.push({
+                            x : startX + col * (bricksW + bricksGap),
+                            y : 80 + row * (bricksH + bricksGap), 
+                            show : true  
+                        });
+                        remainingBricks++; 
+                    }
+                }
+            }
+        }
+
+        function startCountdown() {
+            gameState = 'COUNTDOWN';
+            countdownNum = 3;
+
+            let countInterval = setInterval(() => {
+                countdownNum--;
+                if(countdownNum <= 0) {
+                    clearInterval(countInterval);
+                    gameState = 'PLAYING';
+                }
+            }, 1000);
+        }
+
+        function showResultButtons(type) {
+            resultBtns.style.display = 'flex';
+            setTimeout(() => resultBtns.style.opacity = '1', 50);
+        }
+
+        function hideResultButtons() {
+            resultBtns.style.opacity = '0';
+            setTimeout(() => resultBtns.style.display = 'none', 500);
+        }
+
+        window.selectStage = function(idx) {
+            initScreen.style.display = "none";
+            currentLevelIdx = idx;
+            triggerLevelTransition(idx);
+        };
+
+        restartBtn.addEventListener("click", () => {
+            hideResultButtons();
+            setupBoardForLevel(LEVELS[currentLevelIdx]);
+            startCountdown();
+        });
+
+        levelSelectBtn.addEventListener("click", () => {
+            hideResultButtons();
+            gameState = 'INIT';
+            bricks = []; 
+            
+            // 화면 원래 크기(880x770)로 복구
+            currentW = 880;
+            currentH = 770;
+            canvas.width = currentW;
+            canvas.height = currentH;
+            
+            ballX = canvas.width / 2;
+            ballY = canvas.height - 100;
+            barX = canvas.width / 2 - barW / 2;
+            initScreen.style.display = "flex";
+        });
+
+        function triggerLevelTransition(targetIdx) {
+            targetW = LEVELS[targetIdx].w;
+            targetH = LEVELS[targetIdx].h;
+            gameState = 'TRANSITIONING';
+        }
+
+        function startFlashing() {
+            gameState = 'FLASHING';
+            flashState = false; 
+            setTimeout(() => flashState = true, 300); 
+            setTimeout(() => flashState = false, 600); 
+            setTimeout(() => flashState = true, 900); 
+            setTimeout(() => {
+                startCountdown();
+            }, 1200);
+        }
+
+        function endGame(){
+            gameState = 'GAMEOVER';
+            showResultButtons('GAMEOVER');
+        }
+
+        function gameClear(){
+            gameState = 'CLEAR_WAIT'; 
+            setTimeout(() => {
+                gameState = 'CLEAR_ANIMATING';
+            }, 1000); 
+        }
+
+        function move(){
+            ballX += ballSpeedX;
+            ballY += ballSpeedY;
+
+            if(ballX + ballR > canvas.width || ballX - ballR < 0) ballSpeedX *= -1;
+            if(ballY - ballR < 0) ballSpeedY *= -1;
+
+            if(ballY + ballR > barY && ballY - ballR < barY + barH && ballX + ballR > barX && ballX - ballR < barX + barW) {
+                if(ballY < barY + barH/2) {
+                    ballSpeedY *= -1;
+                    ballY = barY - ballR;
+                }
+            }
+
+            for(let i = 0; i < bricks.length; i++){
+                let b = bricks[i];
+                if(b.show && ballX + ballR > b.x && ballX - ballR < b.x + bricksW && ballY + ballR > b.y && ballY - ballR < b.y + bricksH){
+                    b.show = false;
+                    ballSpeedY *= -1;
+                    remainingBricks--; 
+
+                    if(remainingBricks <= 0){
+                        gameClear();
+                        return; 
+                    }
+                }
+            }
+
+            if(ballY - ballR > canvas.height) endGame();
+        }
+
+        function animate(){
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            rainbowHue += 2; 
+
+            if (gameState === 'TRANSITIONING') {
+                let diffW = targetW - currentW;
+                let diffH = targetH - currentH;
+                
+                currentW += diffW * 0.08;
+                currentH += diffH * 0.08;
+
+                canvas.width = Math.round(currentW);
+                canvas.height = Math.round(currentH);
+
+                barX = canvas.width / 2 - barW / 2;
+                barY = canvas.height - 60;
+                ballX = canvas.width / 2;
+                ballY = canvas.height - 100;
+
+                ctx.fillStyle = "white";
+                ctx.font = "bold 50px DotGothic16, sans-serif";
+                ctx.textAlign = "center";
+                ctx.fillText(LEVELS[currentLevelIdx].title + " 로딩 중...", canvas.width/2, canvas.height/2);
+
+                if (Math.abs(diffW) < 1.5 && Math.abs(diffH) < 1.5) {
+                    currentW = targetW;
+                    currentH = targetH;
+                    canvas.width = targetW;
+                    canvas.height = targetH;
+                    setupBoardForLevel(LEVELS[currentLevelIdx]);
+                    startFlashing();
+                }
+            } 
+            else if (gameState !== 'INIT') { 
+                
+                // --- 기사(공) 그리기 및 회전 로직 ---
+                ctx.save();
+                ctx.translate(ballX, ballY); 
+                let angle = Math.atan2(ballSpeedY, ballSpeedX);
+                ctx.rotate(angle);
+                ctx.drawImage(ballImg, -31 / 2, -33 / 2, 31, 33);
+                ctx.restore();
+
+                let imgDrawX = barX - ((172 - 164) / 2);
+                let imgDrawY = barY - ((57 - 20) / 2);
+                ctx.drawImage(bladeImg, imgDrawX, imgDrawY, 172, 57);
+
+                for(let i = 0; i < bricks.length; i++){ 
+                    if(bricks[i].show && flashState){
+                        ctx.fillStyle = `hsl(${(rainbowHue + i * 5) % 360}, 80%, 60%)`;
+                        ctx.fillRect(bricks[i].x, bricks[i].y, bricksW, bricksH);
+                        ctx.strokeStyle = "rgba(0,0,0,0.3)";
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(bricks[i].x, bricks[i].y, bricksW, bricksH);
+                    }
+                }
+
+                if (gameState === 'COUNTDOWN') {
+                    ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    
+                    ctx.fillStyle = "white";
+                    ctx.font = "bold 150px DotGothic16, sans-serif";
+                    ctx.textAlign = "center";
+                    ctx.fillText(countdownNum, canvas.width/2, canvas.height/2 + 50);
+                } 
+                else if (gameState === 'PLAYING') {
+                    move(); 
+                }
+                else if (gameState === 'CLEAR_ANIMATING' || gameState === 'CLEAR_DONE') {
+                    ctx.fillStyle = `rgba(255, 255, 255, ${clearAlpha * 0.3})`;
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    ctx.save();
+                    ctx.globalAlpha = clearAlpha;
+                    
+                    let clearDrawW = canvas.width * 0.5;
+                    if(clearDrawW > 800) clearDrawW = 800; 
+                    let clearDrawH = clearDrawW * (1122 / 1402); 
+                    
+                    ctx.drawImage(clearImg, canvas.width/2 - clearDrawW/2, canvas.height/2 - clearDrawH/2 - 40, clearDrawW, clearDrawH);
+                    ctx.restore();
+
+                    if (gameState === 'CLEAR_ANIMATING') {
+                        clearAlpha += 0.02; 
+                        if (clearAlpha >= 1) {
+                            clearAlpha = 1; 
+                            gameState = 'CLEAR_DONE';
+                            setTimeout(() => {
+                                showResultButtons('CLEAR');
+                            }, 500); 
+                        }
+                    }
+                }
+                else if (gameState === 'GAMEOVER') {
+                    ctx.fillStyle = "rgba(0,0,0,0.7)";
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    ctx.fillStyle = "red";
+                    ctx.font = "bold 80px DotGothic16, sans-serif";
+                    ctx.textAlign = "center";
+                    ctx.fillText("GAME OVER", canvas.width/2, canvas.height/2);
+                }
+            }
+
+            requestAnimationFrame(animate); 
+        }
+
+        canvas.addEventListener("mousemove", function(e){
+            if (gameState === 'GAMEOVER' || gameState.startsWith('CLEAR') || gameState === 'TRANSITIONING') return;
+
+            let rect = canvas.getBoundingClientRect();
+            let scaleX = canvas.width / rect.width; 
+            let mouseX = (e.clientX - rect.left) * scaleX;
+            
+            barX = mouseX - barW/2;
+
+            if(barX < 0) barX = 0;
+            if(barX + barW > canvas.width) barX = canvas.width - barW; 
+        });
+
+        animate(); 
+    
+    </script>
+</body>
+</html>
